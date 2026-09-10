@@ -1,0 +1,100 @@
+{
+  "metadata": {
+    "trace_name": "normal_dc_v1",
+    "trace_type": "normal_dc",
+    "total_duration_s": 1800,
+    "total_flows": 15000,
+    "n_mice": 13500,
+    "n_elephant": 1500,
+    "generated_at": "2026-02-27T10:41:51.992878+00:00",
+    "seed": 42,
+    "parameters": {
+      "mice_size_range": [
+        1024,
+        10240
+      ],
+      "elephant_size_range": [
+        30048576,
+        1004857600
+      ],
+      "elephant_pareto_alpha": 1.05,
+      "interarrival_mu": -1.0,
+      "interarrival_sigma": 1.5,
+      "mptcp": "selective (mice=TCP, elephant=MPTCP)",
+      "bw_cap_mbps": null,
+      "parallel_streams": "none (MPTCP decides subflows for elephant)"
+    }
+  },
+  "flows": [
+    {
+      "flow_id": 1,
+      "flow_type": "elephant",
+      "use_mptcp": true,
+      "src_server_id": 91,
+      "src_rack_id": 10,
+      "dst_server_id": 41,
+      "dst_rack_id": 5,
+      "start_time_s": 0.046,
+      "transfer_bytes": 90221518,
+      "est_fct_s": 1.222,
+      "port": 5201,
+      "iperf3_flags": "-n 90221518"
+    },
+    {
+      "flow_id": 2,
+      "flow_type": "mice",
+      "use_mptcp": false,
+      "src_server_id": 101,
+      "src_rack_id": 11,
+      "dst_server_id": 42,
+      "dst_rack_id": 5,
+      "start_time_s": 0.189,
+      "transfer_bytes": 3108,
+      "est_fct_s": 0.5,
+      "port": 5201,
+      "iperf3_flags": "-n 3108"
+    },
+    {
+      "flow_id": 3,
+      "flow_type": "mice",
+      "use_mptcp": false,
+      "src_server_id": 141,
+      "src_rack_id": 15,
+      "dst_server_id": 121,
+      "dst_rack_id": 13,
+      "start_time_s": 0.198,
+      "transfer_bytes": 3947,
+      "est_fct_s": 0.5,
+      "port": 5201,
+      "iperf3_flags": "-n 3947"
+    },
+    {
+      "flow_id": 4,
+      "flow_type": "mice",
+      "use_mptcp": false,
+      "src_server_id": 21,
+      "src_rack_id": 3,
+      "dst_server_id": 43,
+      "dst_rack_id": 5,
+      "start_time_s": 0.219,
+      "transfer_bytes": 9034,
+      "est_fct_s": 0.5,
+      "port": 5201,
+      "iperf3_flags": "-n 9034"
+    },
+    {
+      "flow_id": 5,
+      "flow_type": "mice",
+      "use_mptcp": false,
+      "src_server_id": 121,
+      "src_rack_id": 13,
+      "dst_server_id": 91,
+      "dst_rack_id": 10,
+      "start_time_s": 0.652,
+      "transfer_bytes": 3285,
+      "est_fct_s": 0.5,
+      "port": 5201,
+      "iperf3_flags": "-n 3285"
+    }
+  ]
+}
