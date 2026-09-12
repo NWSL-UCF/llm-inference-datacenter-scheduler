@@ -39,14 +39,16 @@ Without those rules, “shortest queue” would depend on event order or leftove
 
 ## What the scheduler does not use
 
-JSQ ignores every per-request size field except insofar as those fields already determined `S` in the CSV:
+A run is one GPU type, one model, and one link on every worker. `--gpu`, `--model`, and `--link` are fixed for the whole trace; there is no mix of 8B and 70B, or of different NICs, in the same decision.
 
-- `ContextTokens`, `GeneratedTokens`
-- `PrefillMs__…`, `TransferMs__…`, `KVCacheMiB__…`
+Within that uniform pool, JSQ still does not look at how large a request is. It ignores:
+
+- `ContextTokens` / `GeneratedTokens`
+- The request’s own `PrefillMs` / `TransferMs` / `KVCacheMiB` (those already set `S` in the CSV)
 - Remaining service on the busy job
 - Historical arrival rate
 
-So a huge 70B prefill and a tiny 8B prefill look the same at decision time if they would add one job to the same queues. Size only shows up later, as wait for whoever lands behind them.
+A long-prompt job and a short-prompt job are the same at decision time: each adds one to a queue. Token length only shows up later, as wait for whoever lands behind the longer prefill.
 
 ## Decision at an arrival
 
