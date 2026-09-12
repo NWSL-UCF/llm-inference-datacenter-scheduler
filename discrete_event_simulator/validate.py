@@ -7,11 +7,9 @@ Checks:
   3. At every arrival, the assigned server had the minimum unfinished
      count (waiting + in-flight). Ties must be the lowest index.
   4. Each server runs at most one prefill at a time (FIFO).
-  5. completionTimestamp is start + prefill, after any jobs already on that server.
-  6. waitingMs is queue delay; processingMs is prefill service time.
-  7. serverArrivalTimestamp is when the request is enqueued on the assigned worker.
-  8. contextTokens matches the trace ContextTokens column.
-  9. KVCache_MB is N_p * KV_tok / 1024^2 for the selected model (BF16).
+  5. completion_timestamp is start + service, after any jobs already on that server.
+  6. waiting_in_queue_ms is queue delay; compute_ms + transfer_ms is service time.
+  7. arrival_to_server_timestamp is when the request is enqueued on the assigned worker.
 
 Example:
   python3 discrete_event_simulator/validate.py \\
@@ -38,7 +36,6 @@ from simulator import (
     GPU_CHOICES,
     MODEL_CHOICES,
     iter_arrivals,
-    kv_cache_mb,
     latency_column,
     pick_server,
 )
@@ -72,17 +69,26 @@ def load_assignments(
     ] = []
     with open(path, newline="") as f:
         reader = csv.DictReader(f)
-        if reader.fieldnames is None or "timestamp" not in reader.fieldnames or "serverId" not in reader.fieldnames:
-            raise SystemExit(f"assignments need timestamp,serverId; have: {reader.fieldnames}")
+        ts_name = "relative_timestamp" if "relative_timestamp" in (reader.fieldnames or []) else "timestamp"
+        if reader.fieldnames is None or ts_name not in reader.fieldnames or "serverId" not in reader.fieldnames:
+            raise SystemExit(f"assignments need relative_timestamp,serverId; have: {reader.fieldnames}")
         names = set(reader.fieldnames)
         for row in reader:
-            done = float(row["completionTimestamp"]) if "completionTimestamp" in names else None
-            wait = float(row["waitingMs"]) if "waitingMs" in names else None
-            proc = float(row["processingMs"]) if "processingMs" in names else None
-            srv_arr = float(row["serverArrivalTimestamp"]) if "serverArrivalTimestamp" in names else None
+            done_name = "completion_timestamp" if "completion_timestamp" in names else "completionTimestamp"
+            wait_name = "waiting_in_queue_ms" if "waiting_in_queue_ms" in names else "waitingMs"
+            arr_name = "arrival_to_server_timestamp" if "arrival_to_server_timestamp" in names else "serverArrivalTimestamp"
+            done = float(row[done_name]) if done_name in names else None
+            wait = float(row[wait_name]) if wait_name in names else None
+            if "compute_ms" in names or "transfer_ms" in names:
+                proc = float(row.get("compute_ms") or 0) + float(row.get("transfer_ms") or 0)
+            elif "processingMs" in names:
+                proc = float(row["processingMs"])
+            else:
+                proc = None
+            srv_arr = float(row[arr_name]) if arr_name in names else None
             ctx = int(row["contextTokens"]) if "contextTokens" in names else None
             kv = float(row["KVCache_MB"]) if "KVCache_MB" in names else None
-            rows.append((row["timestamp"], int(row["serverId"]), done, wait, proc, srv_arr, ctx, kv))
+            rows.append((row[ts_name], int(row["serverId"]), done, wait, proc, srv_arr, ctx, kv))
     return rows
 
 
@@ -108,12 +114,20 @@ def validate(trace: str, assignments_path: str, column: str, n_servers: int, mod
                 busy[worker] = False
 
     for i, (
-        (ts_str, t, service, context_tokens),
+        (ts_str, t, service, context_tokens, _generated_tokens, kv_mib, *_),
         (out_ts, server_id, out_done, out_wait, out_proc, out_srv_arr, out_ctx, out_kv),
     ) in enumerate(zip(iter_arrivals(trace, column), assigned)):
         n += 1
-        if ts_str != out_ts:
-            print(f"row {n}: timestamp mismatch trace={ts_str!r} out={out_ts!r}", file=sys.stderr)
+        try:
+            out_t = float(out_ts)
+        except ValueError:
+            out_t = None
+        if out_t is None:
+            if ts_str != out_ts:
+                print(f"row {n}: timestamp mismatch trace={ts_str!r} out={out_ts!r}", file=sys.stderr)
+                errors += 1
+        elif abs(out_t - t) > 1e-6:
+            print(f"row {n}: relative_timestamp {out_ts} != expected {t}", file=sys.stderr)
             errors += 1
         if not (1 <= server_id <= n_servers):
             print(f"row {n}: serverId {server_id} not in 1..{n_servers}", file=sys.stderr)
@@ -147,19 +161,19 @@ def validate(trace: str, assignments_path: str, column: str, n_servers: int, mod
         free_at[worker] = done
         if out_done is not None and abs(out_done - done) > 1e-6:
             print(
-                f"row {n} t={t}: completionTimestamp {out_done} != expected {done}",
+                f"row {n} t={t}: completion_timestamp {out_done} != expected {done}",
                 file=sys.stderr,
             )
             errors += 1
         if out_wait is not None and abs(out_wait - wait) > 1e-6:
-            print(f"row {n} t={t}: waitingMs {out_wait} != expected {wait}", file=sys.stderr)
+            print(f"row {n} t={t}: waiting_in_queue_ms {out_wait} != expected {wait}", file=sys.stderr)
             errors += 1
         if out_proc is not None and abs(out_proc - service) > 1e-6:
-            print(f"row {n} t={t}: processingMs {out_proc} != expected {service}", file=sys.stderr)
+            print(f"row {n} t={t}: compute_ms+transfer_ms {out_proc} != expected {service}", file=sys.stderr)
             errors += 1
         if out_srv_arr is not None and abs(out_srv_arr - t) > 1e-6:
             print(
-                f"row {n} t={t}: serverArrivalTimestamp {out_srv_arr} != expected {t}",
+                f"row {n} t={t}: arrival_to_server_timestamp {out_srv_arr} != expected {t}",
                 file=sys.stderr,
             )
             errors += 1
@@ -170,7 +184,7 @@ def validate(trace: str, assignments_path: str, column: str, n_servers: int, mod
             )
             errors += 1
         if out_kv is not None:
-            expected_kv = kv_cache_mb(context_tokens, model)
+            expected_kv = kv_mib
             if abs(out_kv - expected_kv) > 1e-6:
                 print(
                     f"row {n} t={t}: KVCache_MB {out_kv} != expected {expected_kv}",
